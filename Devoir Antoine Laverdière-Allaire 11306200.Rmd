@@ -1,0 +1,1072 @@
+---
+title: "Devoir Air Miles"
+output: html_document
+date: "2025-02-05"
+auteur: Antoine Laverdière-Allaire (11306200)
+---
+
+
+# 1. Librairies
+
+Débutons en chargeant les différentes librairies et packages essentiels à notre analyse. Bien que j'aie inclus les librairies de base nécessaires à la segmentation, il est possible que nous en ajoutions d'autres au fur et à mesure de l'évolution de notre travail.
+
+```{r setup, include=FALSE}
+library(psych)
+library(skimr)
+library(corrplot)
+library(caret)
+library(dplyr)
+library(tidyr)
+library(data.table)
+```
+
+# 2. Importation des bases de données
+
+Nous allons maintenant importer les fichiers CSV dans notre environnement de travail afin de débuter l'analyse.
+
+```{r}
+Members <- read.csv("C:/Users/Utilisateur 1/Documents/Maitrise/2e session/Bases de données Marketing/BD_Air Miles/MEMBERS_DIM.csv")
+
+Reward <- read.csv("C:/Users/Utilisateur 1/Documents/Maitrise/2e session/Bases de données Marketing/BD_Air Miles/REWARD_FACT.csv")
+
+Transaction <- read.csv("C:/Users/Utilisateur 1/Documents/Maitrise/2e session/Bases de données Marketing/BD_Air Miles/TRANSACTION_FACT.csv")
+```
+
+L'analyse sera d'abord réalisée séparément sur chacune des trois bases de données, avant de les agréger pour former la base finale qui servira à la segmentation. Nous allons débuter cette étape par l'exploration de la base de données Members.
+
+# 3. Members
+
+```{r}
+# Suppression de la variable TIER comme indiqué dans l'énoncé
+Members <- subset (Members, select = -TIER)
+```
+
+Nous allons commencer par examiner le format des variables présentes dans la table Members, ce qui nous permettra d'avoir un premier aperçu de sa structure et de son contenu.
+```{r}
+str(Members)
+```
+Nous constatons que certaines variables, comme Gender et Prov, sont actuellement formatées en caractères alors qu'elles devraient être traitées comme des facteurs. Nous allons donc ajuster leur format et transformer les variables que nous conserverons pour l'analyse.
+
+```{r}
+# Transformez les variables de type 'character' en 'factor'
+Members$GENDER <- as.factor(Members$GENDER)
+Members$PROV <- as.factor(Members$PROV)
+Members$EMAILABLE_FLAG <- as.factor(Members$EMAILABLE_FLAG)
+Members$MAILABLE_FLAG <- as.factor(Members$MAILABLE_FLAG)
+
+# Vérifier les modifications
+str(Members)
+
+```
+
+Poursuivons l'analyse en calculant des statistiques descriptives plus approfondies afin d'avoir une meilleure compréhension des caractéristiques et des tendances présentes dans le jeu de données.
+
+```{r}
+head(Members)
+```
+
+
+```{r}
+summary(Members)
+```
+
+```{r}
+describe(Members)
+```
+
+```{r}
+skim (Members)
+```
+
+Nous remarquons que la variable Age contient plusieurs valeurs erronées, notamment des âges négatifs ou extrêmement élevés, qui ne font aucun sens dans le contexte de notre analyse. Afin d'assurer la qualité de nos données, j'ai donc décidé de filtrer cette variable en conservant uniquement les membres âgés de 16 à 100 ans.
+
+L'âge minimal de 16 ans correspond à l'âge requis pour adhérer au programme Air Miles, rendant illogique l'inclusion de membres plus jeunes. Quant à l'âge maximal de 100 ans, il s'agit d'un seuil pertinent, puisqu'il est très rare que les individus dépassent cet âge.
+
+```{r}
+# Remplacer les âges inférieures à 16 ans par NA
+Members$AGE[Members$AGE < 16] <- NA
+
+# Remplacer les âges supérieurs à 100 ans par NA
+Members$AGE[Members$AGE > 100] <- NA
+
+```
+
+Nous allons maintenant supprimer les variables Small_Business_Flag et Language. La variable Small_Business_Flag ne présente aucun intérêt pour notre analyse puisqu'elle ne contient que la valeur « N ». Quant à la variable Language, elle est fortement corrélée à la variable Prov, ce qui la rend peu pertinente pour expliquer le comportement des membres dans le programme.
+
+```{r}
+# Supprimer les colonnes SMALL_BUSINESS_FLAG et LANGUAGE
+Members <- Members[, !(names(Members) %in% c("SMALL_BUSINESS_FLAG", "LANGUAGE"))]
+
+# Vérifier la structure après suppression
+str(Members)
+summary(Members)
+```
+Ensuite, les variables Emailable_Flag et Mailable_Flag n'apportent pas suffisamment d'information en l'état actuel. J'ai donc décidé de les combiner en une seule variable nommée Contact_Method, qui indiquera clairement, sous forme textuelle, les méthodes de contact préférées des membres selon leur réponse à ces deux indicateurs.
+
+```{r}
+# Créer une nouvelle colonne combinée
+Members$CONTACT_METHOD <- ifelse(Members$EMAILABLE_FLAG == "Y" & Members$MAILABLE_FLAG == "Y", "Email and Mail", 
+                                  ifelse(Members$EMAILABLE_FLAG == "Y", "Email", 
+                                         ifelse(Members$MAILABLE_FLAG == "Y", "Mail", "None")))
+```
+
+
+```{r}
+# Supprimer les colonnes 'EMAILABLE_FLAG' et 'MAILABLE_FLAG'
+Members <- Members %>%
+  select(-EMAILABLE_FLAG, -MAILABLE_FLAG)
+```
+
+Afin d'éviter toute ambiguïté dans l'analyse, nous allons remplacer les valeurs manquantes des variables Gender et Prov par la valeur explicite NA. Cela nous permettra d'identifier clairement les données manquantes et facilitera leur gestion lors des prochaines étapes.
+
+De plus, nous remarquons un nombre important de valeurs manquantes (NA) dans la colonne Gender. Étant donné que les variables de la table Members sont principalement des variables socio-démographiques et descriptives, et non comportementales, nous ne les inclurons pas dans le tableau final servant à la segmentation. Elles serviront plutôt à la description et à l'interprétation des segments obtenus. Dans ce contexte, ces valeurs manquantes n'auront donc pas d'impact significatif sur la qualité de notre analyse. Nous conserverons donc ces données telles quelles pour le moment.
+
+```{r}
+# Remplacer les valeurs vides (" ") par NA dans les colonnes 'GENDER' et 'PROV'
+Members$GENDER[Members$GENDER == ""] <- NA
+Members$PROV[Members$PROV == ""] <- NA
+
+summary(Members)
+
+```
+
+Nous constatons également que les variables Cash_Back_Points_Balance et Reward_Points_Balance contiennent quelques valeurs négatives. Après avoir examiné les valeurs minimales de ces deux colonnes, nous remarquons que le nombre d'observations concernées est relativement faible (environ 160 lignes au total). Ces valeurs négatives pourraient représenter des remboursements effectués ou simplement des erreurs de saisie.
+
+```{r}
+# Compter le nombre d'observations avec des valeurs négatives
+negative_counts <- Members %>%
+  summarise(
+    Negative_CashBack = sum(CASH_BACK_POINTS_BALANCE < 0, na.rm = TRUE),
+    Negative_Reward = sum(REWARD_POINTS_BALANCE < 0, na.rm = TRUE)
+  )
+
+# Afficher les résultats
+print(negative_counts)
+
+```
+
+Étant donné que notre objectif d'affaires ne vise pas spécifiquement à analyser les comportements de remboursement, et compte tenu du faible nombre d'observations touchées, il est plus prudent de retirer ces lignes afin d'assurer la qualité et la cohérence du jeu de données final.
+
+```{r}
+# Filtrer les valeurs négatives des balances de points
+Members <- Members %>%
+  filter(CASH_BACK_POINTS_BALANCE >= 0 & REWARD_POINTS_BALANCE >= 0)
+
+```
+
+Ensuite, nous remarquons que la variable Tenure_Months affiche une valeur minimale de zéro. Après vérification, nous confirmons qu'il s'agit effectivement de membres récemment inscrits dans le programme. Étant donné que ces membres sont peu nombreux et que leur inclusion ne risque pas d'affecter significativement les résultats, nous décidons de les conserver dans notre jeu de données.
+
+Passons maintenant à l'exploration de la table Reward.
+
+
+# 4. Rewards
+
+```{r}
+# Afficher la structure du dataframe Rewards
+str(Reward)
+```
+Nous remarquons immédiatement que la variable Rewards_Category est actuellement formatée en caractères, alors qu'elle devrait être considérée comme un facteur. Nous allons donc ajuster son format en conséquence.
+
+```{r}
+# Convertir REWARDS_CATEGORY en facteur
+Reward$REWARDS_CATEGORY <- as.factor(Reward$REWARDS_CATEGORY)
+
+# Afficher les niveaux des facteurs dans REWARDS_CATEGORY
+levels(Reward$REWARDS_CATEGORY)
+```
+
+Examinons les statistiques descriptives.
+
+```{r}
+# Regarder les statistiques descriptives 
+head(Reward)
+summary(Reward)
+describe(Reward)
+
+```
+Nous remarquons que la variable Number_Items_Redeemed contient des valeurs égales à zéro alors que la variable Redemptions indique au minimum une transaction effectuée (min = 1). Cette situation suggère soit des erreurs au moment de la transaction, soit des échanges particuliers non liés directement à l'obtention d'un article. De plus, il n'y a aucun point gagné lors de ces échanges. Afin de décider comment traiter ces cas, nous allons d'abord évaluer leur fréquence dans le jeu de données.  
+
+```{r}
+# Identifier les lignes où il y a des redemptions mais aucun article récupéré
+Reward$Invalid_Redemption <- ifelse(Reward$REDEMPTIONS > 0 & Reward$NUMBER_ITEMS_REDEEMED == 0, 1, 0)
+
+# Afficher les lignes identifiées
+Reward[Reward$Invalid_Redemption == 1, ]
+
+```
+
+Nous constatons qu'il n'y a que 151 lignes concernées. Étant donné que ce nombre est relativement faible et que notre objectif est d'analyser spécifiquement la manière dont les membres utilisent et gagnent leurs points (ce qui n'est pas le cas ici, puisqu'aucun point n'est gagné), nous allons tout simplement supprimer du jeu de données les lignes où Number_Items_Redeemed est égal à 0.
+
+```{r}
+# Supprimer les lignes où 'NUMBER_ITEMS_REDEEMED' est égal à 0
+Reward <- Reward %>%
+  filter(NUMBER_ITEMS_REDEEMED != 0)
+
+# Supprimer la colonne Invalid_Redemption du jeu de données
+Reward$Invalid_Redemption <- NULL
+
+```
+
+Afin de mieux comprendre l'impact temporel des récompenses et de faciliter la création de variables ultérieurement, nous allons transformer la colonne Month_ID en une nouvelle colonne YEAR.
+
+J'ai choisi de conserver un niveau de granularité annuel pour plusieurs raisons :
+
+1. Une vision globale du programme : Cette segmentation vise à offrir une vue d’ensemble du programme Air Miles, il n’est donc pas nécessaire d’entrer dans un niveau de détail trop précis pour définir les segments.
+2. Réduction de la complexité : Analyser les récompenses et transactions à un niveau mensuel ou trimestriel nécessiterait la création d’un grand nombre de variables supplémentaires, ce qui compliquerait la segmentation et l’interprétation des résultats.
+
+Nous allons donc nous concentrer exclusivement sur une analyse par année, en regroupant les données par 2022, 2023 et 2024.
+
+```{r}
+# Créer la variable 'YEAR' à partir de 'MONTH_ID'
+Reward <- Reward %>%
+  mutate(
+    YEAR = as.integer(substr(MONTH_ID, 1, 4))
+  ) %>%
+  select(-MONTH_ID) # Supprimer Month_ID
+```
+
+```{r}
+# Convertir YEAR en facteur
+Reward <- Reward %>%
+  mutate(YEAR = factor(YEAR, levels = c(2022, 2023, 2024)))
+
+```
+
+Finalement, nous remarquons la présence de plusieurs valeurs extrêmes dans les variables du jeu de données. Nous allons conserver ce constat en tête et nous occuperons du traitement de ces valeurs plus tard dans l'analyse, une fois que nous aurons une vision plus claire de leur impact potentiel sur la segmentation.
+
+
+Passons maintenant à la création de nouvelles variables. Lors de la segmentation, nous souhaitons évaluer l'intensité de la relation, ou le niveau d’engagement des membres envers le programme Air Miles. Pour ce faire, nous allons utiliser le nombre de points dépensés lors des réclamations de récompenses. Analysons, avec ce boxplot de la distribution de Points_Redeemed en fonction de Redemptions, les tendances qui ressortent des deux variables.
+
+```{r}
+# Charger les librairies nécessaires
+library(ggplot2)
+
+# Création du boxplot
+ggplot(Reward, aes(x = as.factor(REDEMPTIONS), y = POINTS_REDEEMED)) +
+  geom_boxplot(outlier.colour = "red", outlier.shape = 1) +
+  scale_y_log10() +  # Appliquer une échelle logarithmique pour mieux voir les valeurs extrêmes
+  labs(x = "Nombre de rédemptions (Redemptions)", 
+       y = "Points Redeemed",
+       title = "Distribution des Points Redeemed en fonction du nombre de Redemptions") +
+  theme_minimal()
+
+
+```
+
+On voit qu’il y a une relation croissante entre les deux variables, une répartition large avec une dispersion importante et plusieurs outliers. Cela apporte ainsi des indicatifs clairs que l'ajout de nouvelles variables pourrait bonifier l'impact de la table Reward sur la segmentation.
+
+Il serait donc intéressant de créer des variables représentant :
+- Le total des points réclamés, séparés selon les catégories de récompenses (CashBack et Rewards) et regroupés par année (2022, 2023 et 2024)
+- Le nombre moyen de points utilisés par réclamation, afin d’identifier facilement les petits consommateurs ainsi que les grands consommateurs du programme.
+
+
+```{r}
+# Création des nouvelles variables
+Reward <- Reward %>%
+  group_by(MEMBER_ID) %>%
+  mutate(
+    TOTAL_POINTS_REDEEMED_CASHBACK = sum(ifelse(REWARDS_CATEGORY == "Cash_Back", POINTS_REDEEMED, 0), na.rm = TRUE),
+    TOTAL_POINTS_REDEEMED_REWARDS = sum(ifelse(REWARDS_CATEGORY %in% c("REWARD_CATEGORY_1", "REWARD_CATEGORY_2", "REWARD_CATEGORY_3", "REWARD_CATEGORY_4"),
+                                               POINTS_REDEEMED, 0), na.rm = TRUE),
+    TOTAL_REDEMPTIONS_2024 = sum(ifelse(YEAR == 2024, REDEMPTIONS, 0), na.rm = TRUE),
+    TOTAL_REDEMPTIONS_2023 = sum(ifelse(YEAR == 2023, REDEMPTIONS, 0), na.rm = TRUE),
+    TOTAL_REDEMPTIONS_2022 = sum(ifelse(YEAR == 2022, REDEMPTIONS, 0), na.rm = TRUE),
+    TOTAL_POINTS_REDEEMED_2024 = sum(ifelse(YEAR == 2024, POINTS_REDEEMED, 0), na.rm = TRUE),
+    TOTAL_POINTS_REDEEMED_2023 = sum(ifelse(YEAR == 2023, POINTS_REDEEMED, 0), na.rm = TRUE),
+    TOTAL_POINTS_REDEEMED_2022 = sum(ifelse(YEAR == 2022, POINTS_REDEEMED, 0), na.rm = TRUE),
+    POINTS_PER_REDEMPTION = sum(POINTS_REDEEMED, na.rm = TRUE) / sum(REDEMPTIONS, na.rm = TRUE)
+  ) %>%
+  ungroup()
+
+```
+
+Pour obtenir une vue d'ensemble du comportement de chaque membre et faciliter l'intégration avec la table Transaction, nous allons agréger la table Rewards de manière à ce que chaque ligne corresponde à un Member_ID unique.
+
+```{r}
+Reward_agg <- Reward %>%
+  group_by(MEMBER_ID) %>%
+  summarise(
+    TOTAL_REDEMPTIONS = sum(REDEMPTIONS, na.rm = TRUE),
+    TOTAL_NUMBER_ITEMS_REDEEMED = sum(NUMBER_ITEMS_REDEEMED, na.rm = TRUE),
+    TOTAL_POINTS_REDEEMED = sum(POINTS_REDEEMED, na.rm = TRUE),
+    TOTAL_POINTS_REDEEMED_CASHBACK = max(TOTAL_POINTS_REDEEMED_CASHBACK, na.rm = TRUE),
+    TOTAL_POINTS_REDEEMED_REWARDS = max(TOTAL_POINTS_REDEEMED_REWARDS, na.rm = TRUE),
+    TOTAL_REDEMPTIONS_2024 = max(TOTAL_REDEMPTIONS_2024, na.rm = TRUE),
+    TOTAL_REDEMPTIONS_2023 = max(TOTAL_REDEMPTIONS_2023, na.rm = TRUE),
+    TOTAL_REDEMPTIONS_2022 = max(TOTAL_REDEMPTIONS_2022, na.rm = TRUE),
+    TOTAL_POINTS_REDEEMED_2024 = max(TOTAL_POINTS_REDEEMED_2024, na.rm = TRUE),
+    TOTAL_POINTS_REDEEMED_2023 = max(TOTAL_POINTS_REDEEMED_2023, na.rm = TRUE),
+    TOTAL_POINTS_REDEEMED_2022 = max(TOTAL_POINTS_REDEEMED_2022, na.rm = TRUE),
+    POINTS_PER_REDEMPTION = max(POINTS_PER_REDEMPTION, na.rm = TRUE),
+  ) %>%
+  ungroup()
+
+
+```
+
+Regardons à quoi ressemble le nouveau dataset agrégé
+```{r}
+summary(Reward_agg)
+```
+
+Regardons la corrélation entre les variables de Reward_agg
+```{r}
+# Sélectionner uniquement les colonnes numériques
+numeric_vars <- Reward_agg[, sapply(Reward_agg, is.numeric), with = FALSE]
+
+# Calculer la matrice de corrélation
+cor_matrix <- cor(numeric_vars, use = "complete.obs")
+
+# Afficher la matrice de corrélation
+print(cor_matrix)
+
+# Trouver les variables avec une corrélation > 0.9
+high_corr <- findCorrelation(cor_matrix, cutoff = 0.9)
+
+# Afficher les noms des variables fortement corrélées
+colnames(numeric_vars)[high_corr]
+
+```
+
+On s'apercoit avec les corrélations que Total_Number_Items_Redeemed est très corrélé à Total_Redemptions ( ( > 0.9). Cette forte corrélation suggère que les deux variables apportent une information redondante. De plus, étant donné que notre objectif principal est d'évaluer les points gagnés plutôt que le nombre d'articles échangés, la variable TOTAL_NUMBER_ITEMS_REDEEMED est moins pertinente pour notre analyse. Par conséquent, j'ai décidé de supprimer cette variable de la table Reward_agg afin de simplifier le modèle et d'éviter les problèmes potentiels liés à la multicolinéarité.
+
+```{r}
+Reward_agg <- Reward_agg %>% select(-TOTAL_NUMBER_ITEMS_REDEEMED)
+
+```
+
+```{r}
+# Vérification des changements
+summary(Reward_agg)
+```
+
+J'ai constaté que la variable Points_Per_Redemption présente une valeur maximale anormalement élevée, atteignant 89 000 points dépensés en moyenne par rédemption. Une telle valeur est suspecte, car elle suggère que chaque utilisation de points est extraordinairement élevée, ce qui n'est pas réaliste dans un contexte typique. Pour traiter ces valeurs extrêmes et éviter qu'elles ne faussent la segmentation, j'ai décidé d'appliquer une méthode de plafonnement. Cette technique consiste à remplacer les valeurs dépassant un certain seuil par la valeur de ce seuil, ici fixé au 99ᵉ percentile. Ainsi, les valeurs supérieures à ce percentile seront plafonnées, réduisant l'impact des anomalies tout en conservant l'intégrité des données pour une analyse plus fiable.
+
+```{r}
+quantiles <- quantile(Reward_agg$POINTS_PER_REDEMPTION, 0.99, na.rm = TRUE)
+Reward_agg$POINTS_PER_REDEMPTION <- pmin(Reward_agg$POINTS_PER_REDEMPTION, quantiles)
+
+```
+
+Vérifions le changement effectué.
+```{r}
+summary(Reward_agg)
+```
+
+On apercoit que la valeur maximum est désormais de 6120 ce qui va grandement aider à limiter l'influence des valeurs extrêmes sur la segmentation.
+
+Il reste encore plusieurs valeurs extrêmes dans les maximums des variables. On va les traiter plus tard lorsque le dataset final sera créé.
+
+
+
+# 5. Transaction
+
+```{r}
+# Afficher la structure du dataframe
+str(Transaction)
+```
+On va convertir les variables mal formatées.
+
+```{r}
+# Convertir les colonnes qui sont en caractères en entiers (int)
+Transaction$MEMBER_ID <- as.integer(Transaction$MEMBER_ID)
+Transaction$TRANSACTIONS <- as.integer(Transaction$TRANSACTIONS)
+Transaction$MONTH_ID <- as.integer(Transaction$MONTH_ID)
+Transaction$BASE_POINTS_EARNED <- as.integer(Transaction$BASE_POINTS_EARNED)
+Transaction$BONUS_POINTS_EARNED <- as.integer(Transaction$BONUS_POINTS_EARNED)
+Transaction$REWARD_POINTS_EARNED <- as.integer(Transaction$REWARD_POINTS_EARNED)
+Transaction$CASH_BACK_POINTS_EARNED <- as.integer(Transaction$CASH_BACK_POINTS_EARNED)
+
+```
+
+
+```{r}
+# Regarder les stats descriptives
+head(Transaction)
+```
+
+```{r}
+summary(Transaction)
+```
+
+```{r}
+describe(Transaction)
+```
+
+Puisqu'on cherche à analyser comment les points ont été gagnés par les membres et donc avec quel type d'achats les points Air Miles ont été accumulés, on va ignorer les données pour les transactions faites pour toutes les catégories. En effet, cela ne donne pas vraiment d'informations à propos du comportement des membres, donc on ne va pas inclure ces données pour notre segmentation.
+
+J'ai donc décidé d'exclure les transactions de type Category_8 ainsi que celles de toutes catégories (valeurs manquantes). Cette approche nous permettra d'évaluer plus précisément les différences comportementales en se basant sur des données complètes et pertinentes.
+
+```{r}
+Transaction <- Transaction %>% filter(RETAILER != "CATEGORY_8" & RETAILER != "")
+```
+
+Après une analyse approfondie de la base de données, j'ai constaté la présence de valeurs négatives dans plusieurs variables. Ces valeurs sont probablement dues à des remboursements effectués aux membres. Étant donné que l'objectif principal de cette étude est d'analyser les comportements d'achat positifs et non les retours ou annulations, il est judicieux d'exclure ces valeurs négatives de la segmentation. Cette approche permettra de se concentrer sur les transactions reflétant un engagement actif des membres envers le programme de fidélité, garantissant ainsi une analyse plus précise et pertinente.
+
+```{r}
+# Exclure les lignes où les valeurs sont négatives
+Transaction <- Transaction[Transaction$AMOUNT_SPENT >= 0, ]
+
+Transaction <- Transaction[Transaction$BASE_POINTS_EARNED >= 0, ]
+Transaction <- Transaction[Transaction$BONUS_POINTS_EARNED >= 0, ]
+Transaction <- Transaction[Transaction$REWARD_POINTS_EARNED >= 0, ]
+Transaction <- Transaction[Transaction$CASH_BACK_POINTS_EARNED >= 0, ]
+
+```
+
+
+```{r}
+# Convertir REWARDS_CATEGORY en facteur.
+Transaction$RETAILER <- as.factor(Transaction$RETAILER)
+
+# Afficher les niveaux des facteurs dans REWARDS_CATEGORY
+levels(Transaction$RETAILER)
+```
+
+```{r}
+# Convertir la colonne AMOUNT_SPENT en numérique
+Transaction$AMOUNT_SPENT <- as.numeric(Transaction$AMOUNT_SPENT)
+```
+
+```{r}
+summary(Transaction)
+```
+
+Après avoir fait un summary de la base Transaction, j'ai constaté la présence d'environ 112 000 valeurs manquantes (NA). Ne sachant pas s'il s'agit d'erreurs ou de données réellement absentes, et considérant que ces observations ne sont pas essentielles pour l'objectif de cette segmentation, j'ai décidé de les exclure de l'analyse. Cette approche permet de garantir la fiabilité des résultats en évitant les biais potentiels liés aux données manquantes.
+
+```{r}
+Transaction <- na.omit(Transaction)
+```
+
+```{r}
+summary(Transaction)
+```
+
+Ensuite, regardons l'état des valeurs extrêmes à l'aide d'une analyse des quantiles. 
+```{r}
+# Quantiles
+quantile(Transaction$AMOUNT_SPENT, probs = c(0.01, 0.05, 0.10, 0.50, 0.95, 0.99))
+
+```
+
+On apercoit aussi en regardant la base de données que plusieurs des valeurs extrêmes sont très élevées. Celles-ci peuvent venir fausser l'analyse sur des points de données qui sont peu représentatifs. Cela pourrait amener à fausser la moyenne ou l'écart-type et fausser notre segmentation. J'ai donc décidé d'opter pour une stratégie simple qui est d'éliminer le 1% des valeurs les plus élevés de la colonne Amount_Spent afin d'obtenir une vue plus représentative du comportement général des clients, ce qui peut être plus pertinent pour des actions marketing ciblées.
+
+Il est essentiel de rappeler que notre objectif est de comprendre les comportements typiques de la clientèle. Les valeurs extrêmes, bien que réelles, peuvent appartenir à un sous-ensemble restreint de clients dont les habitudes d'achat ne reflètent pas celles de la majorité. En focalisant notre analyse sur la majorité, nous pourrons élaborer des stratégies marketing plus ciblées et adaptées à notre public principal.
+
+
+```{r}
+# Calculez le quantile à 99% pour AMOUNT_SPENT
+quantile_99 <- quantile(Transaction$AMOUNT_SPENT, 0.99, na.rm = TRUE)
+
+# Filtrer les lignes où AMOUNT_SPENT est inférieur à ce quantile
+Transaction <- Transaction[Transaction$AMOUNT_SPENT <= quantile_99, ]
+
+# Vérifiez la structure des données après filtrage
+summary(Transaction)
+
+```
+Après avoir analysé les valeurs extrêmes des autres variables de la table Transaction_filtered, je trouve toujours que ces points sont trop élevés et semble louche. On va donc faire la même opération pour les 1% des valeurs les plus élevées des variables Bonus_Points_Earned, Rewards_Points_Earned et Cash_Back_Points_Earned.
+
+```{r}
+# Calcul des quantiles à 99% pour chaque colonne
+quantile_bonus_points <- quantile(Transaction$BONUS_POINTS_EARNED, 0.99, na.rm = TRUE)
+quantile_reward_points <- quantile(Transaction$REWARD_POINTS_EARNED, 0.99, na.rm = TRUE)
+quantile_cash_back_points <- quantile(Transaction$CASH_BACK_POINTS_EARNED, 0.99, na.rm = TRUE)
+
+# Supprimer les lignes où les valeurs sont inférieures à ces quantiles
+Transaction <- Transaction %>%
+  filter(BONUS_POINTS_EARNED <= quantile_bonus_points,
+         REWARD_POINTS_EARNED <= quantile_reward_points,
+         CASH_BACK_POINTS_EARNED <= quantile_cash_back_points)
+
+# Vérifier la structure des données
+summary(Transaction)
+str(Transaction)
+
+```
+
+Comme nous avons fait pour la table Rewards, nous allons modifier la colonne Month_ID et la transformer en colonne YEAR puisqu'il s'agit du niveau de granularité temporel choisi pour cette analyse.
+
+```{r}
+
+Transaction <- Transaction %>%
+  mutate(YEAR = substr(MONTH_ID, 1, 4))  # Extraire les 4 premiers caractères de MONTH_ID pour obtenir l'année
+
+Transaction <- Transaction %>%
+  select(-MONTH_ID)  # Supprimer la colonne MONTH_ID
+
+
+str(Transaction)
+
+```
+
+
+Poursuivons avec la création de nouvelles variables dans Transaction. J'ai décidé de me concentrer spécifiquement sur les mécanismes d'accumulation et d'utilisation des points par les membres puisqu'il s'agit de l'objectif de mon projet. Cette approche exclut donc volontairement les variables telles que Total_Transaction_Category ou Total_Transaction_2024, qui pourraient introduire une redondance avec des variables comme Total_Base_Points_Earned_Category_1.  En effet, des variables fortement corrélées peuvent biaiser les résultats de la segmentation et compliquer l'interprétation des données. En limitant le jeu de données aux variables les plus pertinentes, on simplifie le modèle de segmentation, ce qui facilite l'analyse et la mise en oeuvre de stratégies marketing ciblées.
+
+
+
+Je vais donc ajouter 11 nouvelles variables à Transaction :
+
+1. Points Earned 2024
+2. Points Earned 2023
+3. Points Earned 2022
+4. Bonus Points Earned Ratio
+5. Points Earned Alcool (Category 1)
+6. Points Earned Epicerie (Category 2)
+7. Points Earned Essence (Category 3)
+8. Points Earned Credit (Category 4)
+9. Points Earned Quincaillerie (Category 5)
+10. Points Earned Pharmacie (Category 6)
+11. Points Earned Automobile (Category 7)
+
+Ces variables vont être pertinentes pour évaluer les manières que les membres obtiennent leurs points à travers les années et le type d'achats qu'ils effectuent.
+
+```{r}
+
+# Convertir Transaction en data.table pour de meilleures performances
+setDT(Transaction)
+
+```
+
+
+```{r}
+# Calcul des points gagnés par année (en fonction de l'année)
+Transaction[, 
+  `:=`(
+    POINTS_EARNED_2024 = sum(ifelse(YEAR == 2024, CASH_BACK_POINTS_EARNED + REWARD_POINTS_EARNED, 0), na.rm = TRUE),
+    POINTS_EARNED_2023 = sum(ifelse(YEAR == 2023, CASH_BACK_POINTS_EARNED + REWARD_POINTS_EARNED, 0), na.rm = TRUE),
+    POINTS_EARNED_2022 = sum(ifelse(YEAR == 2022, CASH_BACK_POINTS_EARNED + REWARD_POINTS_EARNED, 0), na.rm = TRUE)
+  ), by = MEMBER_ID]
+
+```
+
+```{r}
+# Calcul du ratio des points bonus gagnés sur l'ensemble des points
+Transaction[, 
+  `:=`(
+    BONUS_POINTS_EARNED_RATIO = sum(BONUS_POINTS_EARNED, na.rm = TRUE) / 
+                                (sum(BASE_POINTS_EARNED, na.rm = TRUE) + sum(BONUS_POINTS_EARNED, na.rm = TRUE))
+  )]
+
+```
+
+```{r}
+# Calcul du Total des points gagnés pour chaque catégorie d'achats
+Transaction[, 
+  `:=`(
+    POINTS_EARNED_ALCOOL = sum(ifelse(RETAILER == "CATEGORY_1", CASH_BACK_POINTS_EARNED + REWARD_POINTS_EARNED, 0), na.rm = TRUE),
+    POINTS_EARNED_EPICERIE = sum(ifelse(RETAILER == "CATEGORY_2", CASH_BACK_POINTS_EARNED + REWARD_POINTS_EARNED, 0), na.rm = TRUE),
+    POINTS_EARNED_ESSENCE = sum(ifelse(RETAILER == "CATEGORY_3", CASH_BACK_POINTS_EARNED + REWARD_POINTS_EARNED, 0), na.rm = TRUE),
+    POINTS_EARNED_CREDIT = sum(ifelse(RETAILER == "CATEGORY_4", CASH_BACK_POINTS_EARNED + REWARD_POINTS_EARNED, 0), na.rm = TRUE),
+    POINTS_EARNED_QUINCAILLERIE = sum(ifelse(RETAILER == "CATEGORY_5", CASH_BACK_POINTS_EARNED + REWARD_POINTS_EARNED, 0), na.rm = TRUE),
+    POINTS_EARNED_PHARMACIE = sum(ifelse(RETAILER == "CATEGORY_6", CASH_BACK_POINTS_EARNED + REWARD_POINTS_EARNED, 0), na.rm = TRUE),
+    POINTS_EARNED_AUTOMOBILE = sum(ifelse(RETAILER == "CATEGORY_7", CASH_BACK_POINTS_EARNED + REWARD_POINTS_EARNED, 0), na.rm = TRUE)
+  ), by = MEMBER_ID]
+
+```
+
+```{r}
+# Regarder un sample des données pour voir si toutes les nouvelles variables ont bien été créé.
+sample_df <- Transaction[sample(nrow(Transaction), 1000), ]
+View(sample_df) 
+```
+
+On apercoit que les variables crées sont en format numérique. On va les transformer en format int pour faciliter l'agrégation vers le dataset final. De plus, on va enlever Retailer et Year qui ne sont plus nécessaire dans Transaction. 
+
+```{r}
+# Supprimer Retailer et Year de Transaction
+Transaction <- Transaction %>% select(-RETAILER, -YEAR)
+```
+
+
+```{r}
+# Conversion des autres colonnes en integer
+Transaction$POINTS_EARNED_2024 <- as.integer(as.numeric(Transaction$POINTS_EARNED_2024))
+Transaction$POINTS_EARNED_2023 <- as.integer(as.numeric(Transaction$POINTS_EARNED_2023))
+Transaction$POINTS_EARNED_2022 <- as.integer(as.numeric(Transaction$POINTS_EARNED_2022))
+
+Transaction$POINTS_EARNED_ALCOOL <- as.integer(as.numeric(Transaction$POINTS_EARNED_ALCOOL))
+Transaction$POINTS_EARNED_EPICERIE <- as.integer(as.numeric(Transaction$POINTS_EARNED_EPICERIE))
+Transaction$POINTS_EARNED_ESSENCE <- as.integer(as.numeric(Transaction$POINTS_EARNED_ESSENCE))
+Transaction$POINTS_EARNED_CREDIT <- as.integer(as.numeric(Transaction$POINTS_EARNED_CREDIT))
+Transaction$POINTS_EARNED_QUINCAILLERIE <- as.integer(as.numeric(Transaction$POINTS_EARNED_QUINCAILLERIE))
+Transaction$POINTS_EARNED_PHARMACIE <- as.integer(as.numeric(Transaction$POINTS_EARNED_PHARMACIE))
+Transaction$POINTS_EARNED_AUTOMOBILE <- as.integer(as.numeric(Transaction$POINTS_EARNED_AUTOMOBILE))
+```
+
+On va maintenant pouvoir passer à l'agrégation de la table Transaction pour obtenir une ligne pour chaque membre (Member_ID). Ici, on va effectuer une somme des valeurs pour les variables de base comme Amount_Spent et Base_Points_Earned afin d'obtenir des totaux. En ce qui a trait aux ratios, on va refaire pour les calculs pour avoir les valeurs précises. Finalement, pour les valeurs constantes pour chaque Member_ID, on va sélectionner le max comme on a déjà fait avec l'agrégation de la table Reward.
+
+```{r}
+
+# Effectuer l'agrégation
+Transaction_agg <- Transaction[, .(
+  # Somme pour les transactions et points gagnés
+  TRANSACTIONS = sum(TRANSACTIONS, na.rm = TRUE),
+  AMOUNT_SPENT = sum(AMOUNT_SPENT, na.rm = TRUE),
+  BASE_POINTS_EARNED = sum(BASE_POINTS_EARNED, na.rm = TRUE),
+  BONUS_POINTS_EARNED = sum(BONUS_POINTS_EARNED, na.rm = TRUE),
+  REWARD_POINTS_EARNED = sum(REWARD_POINTS_EARNED, na.rm = TRUE),
+  CASH_BACK_POINTS_EARNED = sum(CASH_BACK_POINTS_EARNED, na.rm = TRUE),
+
+  # Calcul du ratio
+  BONUS_POINTS_EARNED_RATIO = sum(BONUS_POINTS_EARNED, na.rm = TRUE) / 
+                              (sum(BASE_POINTS_EARNED, na.rm = TRUE) + sum(BONUS_POINTS_EARNED, na.rm = TRUE)),
+
+  # Max pour les valeurs constantes par Member_ID
+  POINTS_EARNED_2024 = max(POINTS_EARNED_2024, na.rm = TRUE),
+  POINTS_EARNED_2023 = max(POINTS_EARNED_2023, na.rm = TRUE),
+  POINTS_EARNED_2022 = max(POINTS_EARNED_2022, na.rm = TRUE),
+
+  POINTS_EARNED_ALCOOL = max(POINTS_EARNED_ALCOOL, na.rm = TRUE),
+  POINTS_EARNED_EPICERIE = max(POINTS_EARNED_EPICERIE, na.rm = TRUE),
+  POINTS_EARNED_ESSENCE = max(POINTS_EARNED_ESSENCE, na.rm = TRUE),
+  POINTS_EARNED_CREDIT = max(POINTS_EARNED_CREDIT, na.rm = TRUE),
+  POINTS_EARNED_QUINCAILLERIE = max(POINTS_EARNED_QUINCAILLERIE, na.rm = TRUE),
+  POINTS_EARNED_PHARMACIE = max(POINTS_EARNED_PHARMACIE, na.rm = TRUE),
+  POINTS_EARNED_AUTOMOBILE = max(POINTS_EARNED_AUTOMOBILE, na.rm = TRUE)
+), by = MEMBER_ID]  # Agréger par MEMBER_ID
+
+```
+Regardons à quoi ressemble Transaction_agg
+```{r}
+summary(Transaction_agg)
+str(Transaction_agg)
+```
+
+Après avoir analysé les statistiques descriptives de Transaction_agg, on réalise que Bonus_Points_Earned_Ratio a une faible variabilité et peu de dispersion, nous allons la normaliser pour faciliter la comparaison entre les variables dans la segmentation et éviter qu'elle se fasse dominer par d'autres variables dans l'algorithme.
+
+```{r}
+
+# Normaliser Bonus_Points_Earned_Ratio
+Transaction_agg$Bonus_Ratio_Scaled <- scale(Transaction_agg$BONUS_POINTS_EARNED_RATIO)
+
+# Enlever BONUS_POINTS_EARNED_RATIO
+Transaction_agg[, BONUS_POINTS_EARNED_RATIO := NULL]
+
+```
+
+On remarque qu'on a un grand nombre de variable dans la table agrégée et que plusieurs d'entre elles pourraient être fortement corrélées. Analysons donc la matrice de corrélation.
+
+```{r}
+
+# Sélectionner uniquement les variables numériques
+numeric_vars <- Transaction_agg[, sapply(Transaction_agg, is.numeric), with = FALSE]
+
+# Calculer la matrice de corrélation
+cor_matrix <- cor(numeric_vars, use = "complete.obs")
+
+# Afficher la matrice
+print(cor_matrix)
+
+# Remplacer les NA par 0 dans la matrice de corrélation
+cor_matrix[is.na(cor_matrix)] <- 0
+
+# Trouver les variables avec une corrélation > 0.9
+high_corr <- findCorrelation(cor_matrix, cutoff = 0.9)
+
+# Afficher les noms des variables fortement corrélées
+colnames(numeric_vars)[high_corr]
+
+```
+
+On voit qu'il n'y a aucune variable qui ne semble avoir de fortes corrélations anormales entre elles.
+
+
+# 6. Segmentation
+
+On va maintenant pouvoir passer à la jointure finale de Transaction_agg et de Reward_agg pour créer notre dataset final qui sera ensuite utilisé pour la segmentation.
+
+```{r}
+# Jointure des deux BD
+Final_agg <- merge(Transaction_agg, Reward_agg, by = "MEMBER_ID", all = TRUE)
+
+# Remplacer les NA par 0
+Final_agg[is.na(Final_agg)] <- 0
+
+# S'assurer que les noms des colonnes sont en majuscules
+colnames(Final_agg) <- toupper(colnames(Final_agg))
+
+```
+
+Après avoir créé le dataset final agrégé, on va évaluer la corrélation entre les variables pour s'assurer qu'il n'y a pas de corrélation importantes entre les variables. 
+
+```{r}
+library(corrplot)
+
+# Sélectionner uniquement les colonnes numériques
+numeric_vars <- Final_agg[, sapply(Final_agg, is.numeric), with = FALSE]
+
+# Calculer la matrice de corrélation
+cor_matrix <- cor(numeric_vars, use = "complete.obs")
+
+library(caret)
+
+# Calculer la matrice de corrélation en gérant les NA
+cor_matrix <- cor(numeric_vars, use = "pairwise.complete.obs")
+
+# Remplacer les NA par 0 pour éviter les erreurs
+cor_matrix[is.na(cor_matrix)] <- 0
+
+# Trouver les variables avec une corrélation > 0.9
+high_corr <- findCorrelation(cor_matrix, cutoff = 0.9)
+
+# Afficher les noms des variables fortement corrélées
+colnames(numeric_vars)[high_corr]
+```
+
+Après avoir examiné les corrélations entre les variables, il apparaît que, mis à part une forte corrélation entre Amount_Spent et Total_Redemptions, les autres variables ne présentent pas de corrélations significatives. Bien que cette corrélation soit notable, il est judicieux de conserver ces deux variables dans notre analyse. En effet, elles sont essentielles pour comprendre les comportements d'achat et de rédemption des membres et ont contribué à la création de plusieurs autres variables pertinentes dans notre jeu de données. Néanmoins, il est important de garder à l'esprit cette corrélation lors des analyses ultérieures, car une multicolinéarité prononcée peut affecter la stabilité et l'interprétation des modèles statistiques. 
+
+Faisons un dernier summary du dataset final
+
+```{r}
+str(Final_agg)
+summary(Final_agg)
+```
+On apercoit que toutes les variables de Final_agg comporte des valeurs assez extrêmes dans leurs maximums et comparément à leurs trosièmes quartiles (Q3). On va donc plafonner ces valeurs en utilisant le 99e percentile de chaque variable respective pour éviter qu'elles ressortent lors de la segmentation.
+
+```{r}
+# Plafonnement à 99% pour toutes les variables numériques
+num_cols <- names(Final_agg)[sapply(Final_agg, is.numeric)]
+
+for(col in num_cols){
+  quant <- quantile(Final_agg[[col]], 0.99, na.rm = TRUE)
+  Final_agg[[col]] <- pmin(Final_agg[[col]], quant)
+}
+
+```
+
+Finalement, il faut changer le format des variables numériques en integer pour une dernière fois.
+```{r}
+# Conversion des variables en int
+Final_agg <- Final_agg %>%
+  mutate(across(where(is.numeric) & !contains("BONUS_RATIO_SCALED"), as.integer)) %>%
+  select(MEMBER_ID, everything())  # Placer MEMBER_ID en première colonne
+
+# Vérification finale du formatage
+str(Final_agg)
+
+```
+
+Même si plusieurs de mes variables peuvent provoquer de la redondance, j'ai de la misère à justifier l'exclusion de certaines variables dans le cadre de mon objectif d'affaires, surtout puisqu'elle ne sont pas fortement corrélées entre elles. Ainsi, une des options qui va s'offrir à moi sera d'effectuer une Analyse en Composantes Principales (ACP) afin de réduire le nombre de dimensions et d'éliminer la redondance en créant de nouvelles variables (PC1, PC2, ...) qui regrouperont l'essentiel de l'information.
+
+Par contre, avant de réaliser cela, je vais tenter d'effectuer une segmentation manuelle à titre d'analyse préliminaire rapide. On va d'abord supprimer Members_ID du dataset final afin de ne pas l'inclure dans notre segmentation et éviter des erreurs dans les segments.
+
+```{r}
+Final_agg_man <- Final_agg %>% select(-MEMBER_ID)
+
+```
+
+Pour commencer, on va devoir identifier les variables jugées importantes pour la segmentation manuelle. En gardant l'objectif d'affaires en tête, voici les variables clés que je vais prioriser pour tenter d'arriver à une segmentation manuelle pertinente:
+
+- Transactions
+- Amount_Spent
+- Base_Points_Earned
+- Bonus_Points_Earned
+- Reward_Points_Earned
+- Cash_Back_Points_Earned
+- Total_Redemptions
+- Total_Points_Redeemed
+- Points_Per_Redemption
+
+J'ai décidé de selectionner ces 8 variables parce qu'elles couvrent clairement les dimensions d'acquisition et d'utilisation des points, tout en restant faciles à interpréter. On va donc réduire la dimensionnalité de Final_agg_man.
+
+Ensuite, nous allons standardiser les variables afin de les placer sur des échelles semblables.
+
+```{r}
+
+Final_agg_man <- Final_agg_man[, .(
+  TRANSACTIONS,
+  AMOUNT_SPENT,
+  BASE_POINTS_EARNED,
+  BONUS_POINTS_EARNED,
+  REWARD_POINTS_EARNED,
+  CASH_BACK_POINTS_EARNED,
+  TOTAL_REDEMPTIONS,
+  TOTAL_POINTS_REDEEMED,
+  POINTS_PER_REDEMPTION
+)]
+
+Final_agg_man_scaled <- scale(Final_agg_man)
+
+summary(Final_agg_man)
+
+```
+
+Par la suite, on va définir manuellement les règles pour chaque segment. Je veux créer des segments logiques selon des seuils pertinents pour l'objectif d'affaire. Ainsi, je vais vouloir créer ces 4 segments en particulier:
+
+1. Membres à fort volume de transactions (nombre élevé, montant élevé)
+2. Membres avec un volume élevé de points bonus ou cashback
+3. Membres ayant un volume élevé d'utilisation (redemptions)
+4. Membres à faible activité (peu de points, peu de transactions)
+
+On va maintenant pouvoir définir manuellement les règles ou requis pour faire partie de chaque segment.
+
+Voici les règles que j'ai établi pour créer les segments de manière très fine : 
+
+Segment 1 : Membres à fort volume de transactions
+
+TRANSACTIONS ≥ 200 (> Q3)
+AMOUNT_SPENT ≥ 2800 (> moyenne)
+
+Segment 2 : Membres avec un volume élevé de points bonus ou cashback
+
+(BONUS_POINTS_EARNED ≥ 260 (> Q3) ou
+CASH_BACK_POINTS_EARNED ≥ 160(> Q3))
+TRANSACTIONS < 200 (pour éviter le chevauchement avec le segment 1)
+
+Segment 3 : Membres ayant un volume élevé d'utilisation (redemptions)
+
+TOTAL_REDEMPTIONS ≥ 1 (au moins 1 redemption, > 3e quartile)
+TOTAL_POINTS_REDEEMED ≥ 200 (> 3e quartile)
+
+Segment 4 : Membres à faible activité
+
+TRANSACTIONS < 20 (inférieur au premier quartile)
+AMOUNT_SPENT < 200 (inférieur au premier quartile)
+TOTAL_POINTS_REDEEMED < 150
+
+On peut maintenant évaluer la répartition des observations sous cette segmentation et regarder les moyennes des variables pour chaque segment
+
+```{r}
+Final_agg_man[, Segment := fifelse(TRANSACTIONS >= 200 & AMOUNT_SPENT >= 2800, "1",
+                            fifelse((BONUS_POINTS_EARNED >= 260 | CASH_BACK_POINTS_EARNED >= 160) & TRANSACTIONS < 200, 
+                                    "2",
+                            fifelse(TOTAL_REDEMPTIONS >= 10 & TOTAL_POINTS_REDEEMED >= 200, "3",
+                            "4")))]
+
+
+# Regarder le nombre d'observations par cluster
+table(Final_agg_man$Segment)
+
+```
+```{r}
+# Visualisation du nombre d'observations par segment
+ggplot(Final_agg_man, aes(x = Segment)) +
+  geom_bar(fill = "steelblue") +
+  labs(title = "Répartition des segments",
+       x = "Segment",
+       y = "Nombre de membres") +
+  theme_minimal()
+
+# Moyennes par segment
+segment_summary <- Final_agg_man[, lapply(.SD, mean, na.rm = TRUE), by = Segment]
+print(segment_summary)
+
+```
+Malgré plusieurs ajustements pour optimiser la répartition des membres, voici la segmentation manuelle qui offre le meilleur équilibre possible. Lors des différents essais, plusieurs configurations ont entraîné un nombre important de valeurs manquantes, ce qui a limité les possibilités d’affiner davantage la segmentation avec les variables sélectionnées.
+
+Bien que cette répartition soit globalement acceptable, elle reste sous-optimale dans notre contexte d’affaires. En effet, 58 % des membres appartiennent au segment 4, ce qui complique le ciblage marketing et limite la personnalisation des offres. Une segmentation plus équilibrée permettrait de mieux répartir les membres entre les segments et d’identifier des groupes plus exploitables pour des campagnes stratégiques.
+
+
+Plutôt que d'affiner davantage la segmentation manuelle, ce qui pourrait entraîner une répartition déséquilibrée des observations, j’ai décidé d’explorer une approche plus robuste en utilisant la méthode CLARA sur R.
+
+Avant d’appliquer CLARA, une Analyse en Composantes Principales (ACP) doit être réalisée pour transformer les variables de Final_agg. Cette étape est essentielle, car une segmentation basée sur près de 30 variables serait inefficace et difficile à interpréter. L’ACP permettra de réduire la dimensionnalité tout en conservant l’essentiel de l’information.  
+
+On doit d'abord vérifier que toutes les colonnes du dataset sont bien numériques et ne contiennent pas de valeurs NA ou inf. On va d'ailleurs remplacer ces valeurs par zéro s'il y en a. On va aussi supprimer Members_ID du dataset final afin de ne pas l'inclure dans l'ACP. En effet, inclure Members_ID aurait faussé les composantes principales et provoquer des erreurs dans le clustering. Lorsque cela est réalisé, on pourra passer au code pour effectuer l'ACP. 
+
+J'ai choisi CLARA, car il est plus adapté aux grands ensembles de données et permet de gérer des jeux de données volumineux plus efficacement que le k-means classique.
+
+```{r}
+Final_agg_seg <- Final_agg %>% select(-MEMBER_ID)
+```
+
+```{r}
+
+# Vérifier que toutes les colonnes sont bien numériques
+numeric_vars <- Final_agg_seg[, sapply(Final_agg_seg, is.numeric), with = FALSE]
+
+# Remplacer les NA et les valeurs infinies par 0
+numeric_vars <- numeric_vars[, lapply(.SD, function(x) {
+  x[is.na(x)] <- 0  # Remplacer les NA par 0
+  x[is.infinite(x)] <- 0  # Remplacer les Inf par 0
+  return(x)
+})]
+
+library(ggplot2)
+library(factoextra)
+
+# Appliquer l’ACP (centrée et réduite)
+pca_result <- prcomp(numeric_vars, scale. = TRUE)
+
+# Voir le résumé de l'ACP
+summary(pca_result)
+
+
+```
+
+On apercoit avec ces résultats que les composantes 1 à 6 expliquent la majorité de la variance (~78.5%). On peut obtenir plus d'informations à propos de l'évolution de la variance en faisant un scree plot.
+
+```{r}
+library(factoextra)
+
+fviz_eig(pca_result, addlabels = TRUE, ylim = c(0, 50), ncp = length(pca_result$sdev))
+
+
+```
+
+Ce graphique confirme notre choix de choisir 6 composantes principales pour la segmentation. En effet, avec 6 composantes, on capture environ 78.5% de la variance totale, ce qui est largement suffisant pour bien différencier les segments et maintenir une interprétation claire. Ce nombre va également permettre de faciliter la mise en place concrète de stratégies marketing ciblées, puisque chaque segment aura des particularités nettes, bien identifiables et surtout exploitables d'un point de vue opérationnel.
+
+```{r}
+
+# Transformer les données en un nouveau dataset avec 6 dimensions
+pca_data <- as.data.table(pca_result$x)  # Convertir en data.table
+pca_data <- pca_data[, 1:6]  # Sélectionner PC1 à PC6
+
+```
+
+Nous allons maintenant passer à la segmentation. Après avoir essayé plusieurs fois en vain une méthode avec k-means, j'ai décidé de suivre une méthode de segmentation CLARA qui est une variante adaptée du clustering partitionnel classique (k-medoids). Avant de commencer, il faut définir le choix optimal de clusters. On va donc faire une méthode du coude pour voir le choix optimal de clusters à prendre pour la segmentation.
+
+```{r}
+library(factoextra)
+
+set.seed(123)
+
+# Échantillon aléatoire (par exemple 10 000 observations)
+sample_indices <- sample(1:nrow(pca_data), 10000)
+pca_data_sample <- pca_data[sample_indices, ]
+
+# Méthode du coude avec l'échantillon
+fviz_nbclust(pca_data_sample, kmeans, method = "wss", k.max = 10) +
+  labs(title = "Optimal number of clusters",
+       subtitle = "Elbow Method with K-means (Sample of 10,000)")
+
+
+```
+
+On voit que le nombre de clusters optimal selon la méthode du coude est de 3 ou 4. J'ai donc décidé de retenir 4 clusters pour la segmentation. 4 segments offrent une bonne différenciation tout en restant simples à interpréter et à exploiter par les équipes marketing et opérationnelles. Cela limite aussi le risque d’avoir des segments redondants ou trop semblables. De plus, avec 4 clusters, la segmentation sera intuitive et facile à opérer. On peut maintenant placer le seed de l'algorithme au dataset.
+
+
+```{r}
+# CLARA avec 4 clusters
+set.seed(123)
+clara_final <- clara(pca_data, k = 4, samples = 5000, pamLike = TRUE)
+
+# Ajouter le résultat au dataset
+pca_data$Cluster <- clara_final$clustering
+
+# Vérifier la répartition
+table(pca_data$Cluster)
+
+```
+
+On voit que la répartition du nombre d'observations par cluster est bonne et raisonnement équilibrée. Aucun cluster n'est trop petit ou trop grand par rapport aux autres, ce qui garantit une bonne différenciation des segments. On peut donc poursuivre en visualisant les clusters graphiquement.
+
+```{r}
+library(factoextra)
+
+fviz_cluster(clara_final,
+             data = pca_data,
+             ellipse.type = "convex",
+             geom = "point",
+             stand = FALSE,
+             show.clust.cent = TRUE,
+             palette = "jco",
+             ggtheme = theme_minimal())
+
+```
+
+On voit aussi que la visualisation est bonne. Les 4 clusters sont clairement visibles et bien distincts les uns des autres, ce qui confirme la pertinence de la segmentation choisie.
+
+```{r}
+# Ajouter la colonne Cluster au dataset original
+Final_agg$Cluster <- pca_data$Cluster
+
+# Calculer les moyennes par cluster
+cluster_summary <- Final_agg[, lapply(.SD, mean), by = Cluster]
+
+print(cluster_summary)
+
+
+
+```
+
+```{r}
+library(ggplot2)
+
+# Exemple avec AMOUNT_SPENT par cluster
+ggplot(Final_agg, aes(x = factor(Cluster), y = AMOUNT_SPENT, fill = factor(Cluster))) +
+  geom_boxplot() +
+  labs(title = "Montant dépensé par Cluster", x = "Cluster", y = "Montant dépensé") +
+  theme_minimal()
+
+```
+
+On peut ainsi apercevoir avec le sommaire des cluster et le graphique ci-haut que les comportements transactionnels sont très différents à travers les segments. On va continuer en incluant les variables de la table Members au dataset pca_data pour analyser l'impact des variables socio-démographiques sur le comportement des membres à travers les clusters. 
+
+```{r}
+
+# Convertir en data.table si ce n'est pas déjà fait
+setDT(Final_agg)
+setDT(Members)
+
+# Jointure de Members
+Final_agg <- merge(Final_agg, Members, by = "MEMBER_ID", all.x = TRUE)
+
+# Ressortir la moyenne des variables par cluster
+Final_agg %>%
+  group_by(Cluster) %>%
+  summarise(across(everything(), ~mean(.x, na.rm = TRUE)))
+
+```
+
+On va aller plus loin et pousser davantage notre analyse des variables socio-démographiques de Members afin d'évaluer leur impact à travers les segments identifiés.
+
+```{r}
+# Calculer un résumé général par cluster
+socio_demo_summary <- Final_agg[, .(
+  Age_moyen = mean(AGE, na.rm = TRUE),
+  Proportion_femmes = mean(GENDER == "F", na.rm = TRUE),
+  Anciennete_moyenne_mois = mean(TENURE_MONTHS, na.rm = TRUE),
+  Province_mode = names(sort(table(PROV), decreasing = TRUE))[1],
+  Solde_cashback_moyen = mean(CASH_BACK_POINTS_BALANCE, na.rm = TRUE),
+  Solde_rewards_moyen = mean(REWARD_POINTS_BALANCE, na.rm = TRUE),
+  Methode_contact_principale = names(sort(table(CONTACT_METHOD), decreasing = TRUE))[1]
+), by = Cluster]
+
+# Calcul détaillé des indicateurs socio-démographiques
+socio_demo_detailed <- Final_agg[, .(
+  
+  # Âge
+  Age_moyen = mean(AGE, na.rm=TRUE),
+  pct_moins30 = mean(AGE < 30, na.rm=TRUE),
+  pct_30_45 = mean(AGE >=30 & AGE <=45, na.rm=TRUE),
+  pct_46_60 = mean(AGE >=46 & AGE <=60, na.rm=TRUE),
+  pct_61_75 = mean(AGE >=61 & AGE <=75, na.rm=TRUE),
+  pct_plus75 = mean(AGE > 75, na.rm=TRUE),
+
+  # Genre
+  pct_femmes = mean(GENDER=="F", na.rm=TRUE),
+  pct_hommes = mean(GENDER=="M", na.rm=TRUE),
+
+  # Ancienneté
+  Anciennete_moyenne_mois = mean(TENURE_MONTHS, na.rm=TRUE),
+  pct_anciennete_inf5ans = mean(TENURE_MONTHS < 60, na.rm=TRUE),
+  pct_anciennete_5_10ans = mean(TENURE_MONTHS >=60 & TENURE_MONTHS <120, na.rm=TRUE),
+  pct_anciennete_10_20ans = mean(TENURE_MONTHS >=120 & TENURE_MONTHS <240, na.rm=TRUE),
+  pct_anciennete_sup20ans = mean(TENURE_MONTHS >=240, na.rm=TRUE),
+
+  # Soldes
+  Solde_cashback_moyen = mean(CASH_BACK_POINTS_BALANCE, na.rm=TRUE),
+  Solde_rewards_moyen = mean(REWARD_POINTS_BALANCE, na.rm=TRUE),
+  pct_cashback_eleve = mean(CASH_BACK_POINTS_BALANCE > quantile(CASH_BACK_POINTS_BALANCE,0.75, na.rm=TRUE), na.rm=TRUE),
+  pct_rewards_eleve = mean(REWARD_POINTS_BALANCE > quantile(REWARD_POINTS_BALANCE,0.75, na.rm=TRUE), na.rm=TRUE),
+
+  # Méthodes de contact
+  pct_Email_et_Mail = mean(CONTACT_METHOD=="Email and Mail", na.rm=TRUE),
+  pct_Email = mean(CONTACT_METHOD=="Email", na.rm=TRUE),
+  pct_Mail = mean(CONTACT_METHOD=="Mail", na.rm=TRUE),
+
+  # Provinces principales
+  pct_ON = mean(PROV=="ON", na.rm=TRUE),
+  pct_QC = mean(PROV=="QC", na.rm=TRUE),
+  pct_BC = mean(PROV=="BC", na.rm=TRUE),
+  pct_AB = mean(PROV=="AB", na.rm=TRUE)
+  
+), by=Cluster]
+
+# Afficher les résultats détaillés
+socio_demo_summary
+socio_demo_detailed
+```
+
+On peut maintenant effectuer l'interprétation complète finale des 4 segments obtenus à l'aide des tables socio_demo_summary et socio_demo_detailed : 
