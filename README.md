@@ -107,3 +107,7 @@ Each segment was profiled using both behavioral and socio-demographic characteri
 - Data visualization: Custom plots, cluster graphs, scree plots
 
 ---
+
+## 📄 Language Note
+
+Please note that the accompanying report and documentation (`.Rmd`, `.docx`) are written in **French**, as this project was completed as part of a graduate-level course at **HEC Montréal**, where French is the primary language of instruction.
