@@ -37,7 +37,7 @@ A **data dictionary** (`Data Dictionary_H25.xlsx`) was provided to define all va
 ## 📥 Access to Full Dataset
 
 You can access the full datasets here:  
-👉 [Google Drive – Data_Segmentation_Air-Miles](([https://drive.google.com/drive/folders/1N7IDbjHU0w0Kc2M2HSKoEpwR0CW4vCPU](https://drive.google.com/drive/folders/1N7IDbjHU0w0Kc2M2HSKoEpwR0CW4vCPU)))
+👉 [Google Drive – Data_Segmentation_Air-Miles](https://drive.google.com/drive/folders/1N7IDbjHU0w0Kc2M2HSKoEpwR0CW4vCPU)
 
 ---
 
